@@ -1,0 +1,12 @@
+\frametitle{Including Code}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+\begin{semiverbatim}
+\\begin\{frame\}
+\\frametitle\{Outline\}
+\\tableofcontents
+\\end\{frame\}
+\end{semiverbatim}
+
+\end{minipage}}
+

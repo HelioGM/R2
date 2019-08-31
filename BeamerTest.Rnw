@@ -1,0 +1,1284 @@
+\documentclass{beamer}
+\usetheme{Hannover}
+%\usetheme{Singapore}
+
+
+\usefonttheme{professionalfonts}
+%%%%%%%%%
+
+
+
+
+%%%%%%
+
+
+\title{BeamerTest}
+\subtitle{Test for data visualization}
+\institute{UPC}
+\date{\today}
+\author{Garcia-Mendivil, Helio A.}
+
+
+
+%%%%% packages %%%%%
+
+\usepackage{adjustbox}
+\usepackage{amsmath}
+\usepackage{array}
+
+\usepackage[backend=biber, style=chicago-authordate, natbib=true, maxcitenames=2, maxbibnames=6, minbibnames=6,sorting=nyt]{biblatex}
+\usepackage{caption}
+\usepackage[english]{babel}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{gensymb}
+\geometry{showframe}
+\usepackage{graphicx}
+\usepackage[numbered]{bookmark}
+\usepackage[utf8]{inputenc}
+\usepackage{lscape} 
+\usepackage{makecell}
+\usepackage{multicol}
+\usepackage{pgfplots, pgfplotstable}
+\usepackage{rotating}
+\usepackage{subcaption}
+\usepackage{tikz}
+\usepackage{wrapfig}
+\usepackage{wallpaper}
+
+%%%%% Config %%%%%
+
+\graphicspath{ {images/} }
+
+\usetikzlibrary{calc}
+\usetikzlibrary{arrows}
+
+
+<<Library and Data loading, echo=F, results='hide',message=F, warning=FALSE>>=
+
+library(readr)
+library(mosaic)
+library(FSA)
+library(ggplot2)
+library(readxl)
+library(knitr)
+library(doBy)
+library(agricolae)
+library(e1071)
+library(MASS)
+library ("stats")
+library(sm)
+library(xtable)
+library(plotrix)
+library(car)
+library(scales)
+library(data.table)
+
+
+###################### FUNCTIONS #######
+
+# Function to round vectors
+
+round_df <- function(x, digits) {
+    # round all numeric variables
+    # x: data frame 
+    # digits: number of digits to round
+    numeric_columns <- sapply(x, mode) == 'numeric'
+    x[numeric_columns] <-  round(x[numeric_columns], digits)
+    x
+}
+
+## Function for Tukey
+
+He.Tukey<-function(Resp, Trat){
+    anovaTrat <- anova(aov(Resp ~ Trat))
+    PvalueanovaTrat <- anovaTrat$`Pr(>F)`[1]
+    aovTrat <- aov(Resp ~ Trat)
+    posthocTrat <- TukeyHSD(x=aovTrat, 'Trat', conf.level=0.95)
+    posthocTratdf <- data.frame(posthocTrat$`Trat`)
+    p.adjTrat <- posthocTratdf["p.adj"]
+    p.adjTrat2 <- setDT(p.adjTrat, keep.rownames = TRUE)[]
+    p.adjTrat3 <- p.adjTrat2[order(p.adjTrat2[,2])]
+    p.adjTrat4 <-  data.frame(filter(p.adjTrat3,  p.adjTrat3$p.adj <=  0.05))
+    colnames(p.adjTrat4) <- c("Combination", "P.adj")
+    TukeyTrat <- round_df(p.adjTrat4, 4)
+  return(TukeyTrat)
+}
+
+## function for dunn test
+
+He.Dunn<-function(Resp, Trat){
+    DT.Trat <- dunnTest(Resp ~ Trat, method="bonferroni")
+    DT.Trat2 <- DT.Trat$res
+    DT.Trat3 <- data.table(Combination = DT.Trat2$Comparison, P.adj = DT.Trat2$P.adj)
+    DT.Trat4 <- DT.Trat3[order(DT.Trat3$P.adj)]
+    DT.Trat5 <-  data.frame(filter(DT.Trat4,  DT.Trat4$P.adj <=  0.05))
+    DT.Trat5$P.adj <- round_df(DT.Trat5$P.adj, 4)
+    DunnTrat <- DT.Trat5
+  return(DunnTrat)
+}
+############### Functions to plot ####
+He.Plot2<-function(SData, Germ, Isolate, PlotTitle, yla, xla){
+    SelDatagrouped <- group_by(SData, Germ, Isolate)
+    SelDataFramed <- as.data.frame(SelDatagrouped)
+    SelDataFramed$Germ <- as.factor(SelDataFramed$Germ)
+    SelDataFramed$Isolate <- as.factor(SelDataFramed$Isolate)
+    SelDataFramedPlusOne <- SelDataFramed 
+    SelDataFramedPlusOne$EggsP <- SelDataFramedPlusOne$EggsP+1
+blank <- ggplot(SelDataFramedPlusOne, aes(x =Isolate , y = EggsP, fill = Germ)) + theme_classic()
+blank2 <- blank + labs(title= PlotTitle, y= yla, x= xla) 
+blank2xy <- blank2 + theme(panel.grid.major.y = element_line(linetype = "dashed", colour = "grey90"), panel.grid.major.x = element_line(linetype = "dotted", colour = "grey90"), panel.grid.minor.x = element_line(linetype = "dotted", colour = "grey"), legend.position="bottom")
+blank3 <- blank2xy  + scale_y_continuous(trans = "log10", breaks = c(0, 1, 10, 100, 1000, 10000, 100000, 1000000), labels = trans_format("log10", math_format(10^.x))) 
+blankViolin <- blank3  + geom_violin(adjust = .2, scale = "width",trim=TRUE, position = position_dodge(1), alpha = .5, aes(color=Germ), linetype= "blank")  
+blankViolinBox <- blankViolin + geom_boxplot(notch = FALSE, position = position_dodge(1), alpha = .1, outlier.colour = "red", outlier.shape = 13, outlier.size = 3, na.rm	= TRUE) 
+blankViolinBoxMean <- blankViolinBox + stat_summary(fun.y=mean, geom="point", shape = 23, size=3, position = position_dodge(1), alpha=0.65) 
+return(blankViolinBoxMean)
+}
+# e.g.: He.Plot2(SelData, Germ, Isolate, PlotTitle="Line 1\n Line 2", yla="Eggs per plant", xla="Isolate")
+# function for ploting one factor (Isolate, "Isolate" must match with the column name)
+He.Plot.Iso<-function(SData, Isolate, PlotTitle, yla, xla){
+SelDatagrouped <- group_by(SData, Isolate)
+SelDataFramed <- as.data.frame(SelDatagrouped)
+SelDataFramed$Isolate <- as.factor(SelDataFramed$Isolate)
+SelDataFramedPlusOne <- SelDataFramed 
+SelDataFramedPlusOne$EggsP <- SelDataFramedPlusOne$EggsP+1
+blank <- ggplot(SelDataFramedPlusOne, aes(x =Isolate , y = EggsP, fill = Isolate)) + theme_classic()
+blank2 <- blank + labs(title= PlotTitle, y= yla, x= xla) 
+blank2xy <- blank2 + theme(panel.grid.major.y = element_line(linetype = "dashed", colour = "grey90"), panel.grid.major.x = element_line(linetype = "dotted", colour = "grey90"), panel.grid.minor.x = element_line(linetype = "dotted", colour = "grey"), legend.position="bottom")
+blank3 <- blank2xy  + scale_y_continuous(trans = "log10", breaks = c(0, 1, 10, 100, 1000, 10000, 100000, 1000000), labels = trans_format("log10", math_format(10^.x))) 
+blankViolin <- blank3  + geom_violin(adjust = .2, scale = "width",trim=TRUE, position = position_dodge(1), alpha = .5, aes(color=Germ), linetype= "blank")  
+blankViolinBox <- blankViolin + geom_boxplot(notch = FALSE, position = position_dodge(1), alpha = .1, outlier.colour = "red", outlier.shape = 13, outlier.size = 3, na.rm	= TRUE) 
+blankViolinBoxMean <- blankViolinBox + stat_summary(fun.y=mean, geom="point", shape = 23, size=3, position = position_dodge(1), alpha=0.65) 
+return(blankViolinBoxMean)
+}
+# e.g.: He.Plot.Iso(DataGerm.EC, Isolate, PlotTitle="Line 1\n Line 2", yla="Eggs per plant", xla="Isolate")
+# function for ploting one factor (Germ, "Germ" must match with the column name)
+He.Plot.Germ<-function(SData, Germ, PlotTitle, yla, xla){
+    SelDatagrouped <- group_by(SData, Germ)
+    SelDataFramed <- as.data.frame(SelDatagrouped)
+    SelDataFramed$Germ <- as.factor(SelDataFramed$Germ)
+    SelDataFramedPlusOne <- SelDataFramed 
+    SelDataFramedPlusOne$EggsP <- SelDataFramedPlusOne$EggsP+1
+blank <- ggplot(SelDataFramedPlusOne, aes(x =Germ , y = EggsP, fill = Germ)) + theme_classic()
+blank2 <- blank + labs(title= PlotTitle, y= yla, x= xla) 
+blank2xy <- blank2 + theme(panel.grid.major.y = element_line(linetype = "dashed", colour = "grey90"), panel.grid.major.x = element_line(linetype = "dotted", colour = "grey90"), panel.grid.minor.x = element_line(linetype = "dotted", colour = "grey"), legend.position="bottom")
+blank3 <- blank2xy  + scale_y_continuous(trans = "log10", breaks = c(0, 1, 10, 100, 1000, 10000, 100000, 1000000), labels = trans_format("log10", math_format(10^.x))) 
+blankViolin <- blank3  + geom_violin(adjust = .2, scale = "width",trim=TRUE, position = position_dodge(1), alpha = .5, aes(color=Germ), linetype= "blank")  
+blankViolinBox <- blankViolin + geom_boxplot(notch = FALSE, position = position_dodge(1), alpha = .1, outlier.colour = "red", outlier.shape = 13, outlier.size = 3, na.rm	= TRUE) 
+blankViolinBoxMean <- blankViolinBox + stat_summary(fun.y=mean, geom="point", shape = 23, size=3, position = position_dodge(1), alpha=0.65) 
+  return(blankViolinBoxMean)
+}
+# e.g.: He.Plot.Germ(DataIsolate.MIAd, Germ, PlotTitle="Line 1\n Line 2", yla="Eggs per plant", xla="Germplasm")
+
+#### Function to print tables ####
+He.Ptable <- function(HeTable){
+print(xtable(HeTable),include.rownames=FALSE,caption.placement = "top", sanitize.text.function= identity, floating=FALSE) }
+
+#### Function to print resume table, data must be already in 3 columns and grouped by factors ####
+# SelData <- dplyr::select(mydata, Germ, Isolate, EggsP)
+# SelDatagrouped <- group_by(SelData, Germ, Isolate)
+
+He.Res.table <- function(SeData, VarF1, VarF2, VarR){
+
+colnames(SeData) <- c("Factor1", "Factor2", "Resp")
+Factor1V <- unique(SeData$Factor1) # imporant for all loops
+Factor2V <- unique(SeData$Factor2)
+Factor1df <- data.frame(Factor1V)
+Factor2df <- data.frame(Factor2V)
+NumGerm <- nrow(Factor1df)
+NumIsolate <- nrow(Factor2df)
+SDataFramed3 <- as.data.frame(SeData)
+
+SummTable <- summaryBy(Resp ~ Factor1 + Factor2, data = SDataFramed3, FUN = c(length, mean, se), keep.names=TRUE)
+SummTable$Resp.mean <- round_df(SummTable$Resp.mean,0)
+SummTable$Resp.se <- round_df(SummTable$Resp.se,0)
+pm <- ("$\\pm$")
+SummTable$Mean.Se <- paste(SummTable$Resp.mean,pm, SummTable$Resp.se)
+SummTableMeanSe <- dplyr::select(SummTable, Factor1, Factor2, Mean.Se)
+
+nn<-reshape(SummTableMeanSe,timevar="Factor1",idvar="Factor2",direction="wide")
+colnames(nn) <- c("VarF2", c(unique(Factor1V)))
+nn[is.na(nn)]<-0
+ResumeTable <- nn
+
+ return(ResumeTable)
+}
+
+
+#  e.g.: He.Res.table(SelDatagroup, Germ, Isolate, EggsP)
+
+
+
+########################################## Load data ##################################
+#### set working directory ####
+setwd("H:/OneDrive/R/GitHub/R2") 
+
+##### Read excel table ####
+mydata <- read_excel("2016-Solanum-01-11_Isolates(Germplasms).xlsx") 
+
+#### Important Variables ####
+SelData <- dplyr::select(mydata, Germ, Isolate, EggsP)
+SelDatagrouped <- group_by(SelData, Germ, Isolate)
+
+Factor1GermV <- unique(SelDatagrouped$Germ) # imporant for all loops
+Factor2IsolateV <- unique(SelDatagrouped$Isolate)
+Factor1Germdf <- data.frame(Factor1GermV)
+Factor2Isolatedf <- data.frame(Factor2IsolateV)
+NumGerm <- nrow(Factor1Germdf)
+NumIsolate <- nrow(Factor2Isolatedf)
+
+
+
+
+
+
+##### Create subsets in Loop ####
+for(i in 1:NumGerm) { 
+    assign(paste("DataGerm", Factor1GermV[i], sep = "."), data.frame(filter(SelDatagrouped,  Germ ==  Factor1GermV[i])))
+} 
+for(i in 1:NumIsolate) { 
+    assign(paste("DataIsolate", Factor2IsolateV[i], sep = "."), data.frame(filter(SelDatagrouped,  Isolate ==  Factor2IsolateV[i])))
+} 
+#### create Data sets of tukey and Dunn tests with per isolate ####
+for(i in 1:NumIsolate) { 
+    Tempdata <- data.frame(filter(SelDatagrouped, Isolate == Factor2IsolateV[i]))
+    TempTtuk <- He.Tukey(Tempdata$EggsP, Tempdata$Germ)
+   assign(paste("TukLoopIso", Factor2IsolateV[i], sep = "."), data.frame(TempTtuk))
+} 
+for(i in 1:NumIsolate) { 
+    Tempdata <- data.frame(filter(SelDatagrouped, Isolate == Factor2IsolateV[i]))
+    TempDunn <- He.Dunn(Tempdata$EggsP, Tempdata$Germ)
+   assign(paste("DunnLoopIso", Factor2IsolateV[i], sep = "."), data.frame(TempDunn))
+} 
+
+
+# create Data sets of tukey and Dunn tests with per Germplasm
+
+for(i in 1:NumGerm) { 
+    Tempdata <- data.frame(filter(SelDatagrouped, Germ == Factor1GermV[i]))
+    TempTtuk <- He.Tukey(Tempdata$EggsP, Tempdata$Isolate)
+   assign(paste("TukLoopGerm", Factor1GermV[i], sep = "."), data.frame(TempTtuk))
+} 
+
+for(i in 1:NumGerm) { 
+    Tempdata <- data.frame(filter(SelDatagrouped, Germ == Factor1GermV[i]))
+    TempDunn <- He.Dunn(Tempdata$EggsP, Tempdata$Isolate)
+   assign(paste("DunnLoopGerm", Factor1GermV[i], sep = "."), data.frame(TempDunn))
+} 
+
+### create loop for Plots
+
+for(i in 1:NumGerm) { 
+    Tempdata <- data.frame(filter(SelDatagrouped, Germ == Factor1GermV[i]))
+    TempPlot <- He.Plot.Iso(Tempdata, Isolate, PlotTitle=Factor1GermV[i], yla="Eggs per plant", xla="Isolate")
+    assign(paste("PlotLoopGerm", Factor1GermV[i], sep = "."), TempPlot)
+}
+for(i in 1:NumIsolate) { 
+    Tempdata <- data.frame(filter(SelDatagrouped, Isolate == Factor2IsolateV[i]))
+    TempPlot <- He.Plot.Germ(Tempdata, Germ, PlotTitle=Factor2IsolateV[i], yla="Eggs per plant", xla="Germplasm")
+    assign(paste("PlotLoopIso", Factor2IsolateV[i], sep = "."), TempPlot)
+}
+@
+
+
+\begin{document}
+
+<<Descriptive statistics grdr, echo=F, fig=TRUE, message=F, results='asis', cache=TRUE, warning=F>>=
+
+SelDatagrouped <- group_by(SelData, Germ, Isolate)
+SelDataFramed2 <- as.data.frame(SelDatagrouped)
+SummTable <- summaryBy(EggsP ~ Isolate + Germ, data = SelDataFramed2, FUN = c(length, mean, se), keep.names=TRUE)
+SummTable$EggsP.mean <- round_df(SummTable$EggsP.mean,0)
+SummTable$EggsP.se <- round_df(SummTable$EggsP.se,0)
+pm <- ("$\\pm$")
+SummTable$Mean.Se <- paste(SummTable$EggsP.mean,pm, SummTable$EggsP.se)
+SummTableMeanSe <- dplyr::select(SummTable, 1, 2,6)
+nn<-reshape(SummTableMeanSe,timevar="Germ",idvar="Isolate",direction="wide")
+colnames(nn) <- c("Isolate", c(unique(Factor1GermV)))
+nn[is.na(nn)]<-0
+ResumeTable <- nn
+
+@
+
+\begin{frame}
+\titlepage
+\end{frame}
+
+\begin{frame}
+\label{contents}
+
+\frametitle{Table of contents}
+\tableofcontents
+
+\end{frame}
+
+\section{section 1}
+\subsection{subsection a}
+
+\begin{frame}
+
+\frametitle{Host suitability of \textit{Solanum torvum} cultivars to \textit{Meloidogyne incognita}}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+\begin{itemize}
+
+\item Automatically generated and arranged table with mean $\pm$ std error for two independent variables.
+
+\end{itemize}
+
+
+
+\begin{table}[htb]
+\captionof{table}{\raggedright{Number of eggs per plant and reproduction index (RI) of \textit{Meloidogyne incognita} and \textit{M. javanica} isolates on the eggplant cv. Cristal (MC) and the \textit{Solanum torvum} rootstocks cv. Brutus (TB), Espina (TE), Salutamu (TS) and Torpedo (TT). Plants were inoculated with 1 J2/cm$^{3}$ of sand and maintained for 40 days (experiment 1), 49 days (experiment 3), or 55 days (experiment 2).}}
+\resizebox{\linewidth}{!}{
+<<echo=FALSE,results='asis'>>=		
+
+He.Ptable(He.Res.table(SelDatagrouped, Germ, Isolate, EggsP))
+
+@
+}
+\end{table}
+\end{minipage}}
+\end{frame}
+
+\section{section 2}
+\subsection{subsection a}
+\begin{frame}
+
+\frametitle{This is a frame with a table 2}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+\begin{enumerate}
+
+\item texto de prueba 2
+
+\end{enumerate}
+
+\begin{table}[htb]
+    \captionof{table}{Differences between treatments in EC according to TukeyHSD($P>$0.05).}
+    \begin{multicols}{3}
+        \begin{minipage}{0.2\textwidth}
+        \centering
+        Eggplant
+\resizebox{\linewidth}{!}{
+        
+<<echo=FALSE,results='asis'>>=		
+
+He.Ptable(TukLoopGerm.EC)
+
+@
+} 
+        \end{minipage}
+        
+    \vspace{3.3 cm}
+    
+        \begin{minipage}{0.2\textwidth}
+        \centering
+        Brutus
+\resizebox{\linewidth}{!}{
+
+<<echo=FALSE,results='asis'>>=
+
+He.Ptable(TukLoopGerm.TB)
+
+@
+}
+        \end{minipage}
+
+        \begin{minipage}{0.2\textwidth}
+        \centering
+        Espina
+\resizebox{\linewidth}{!}{
+
+<<echo=FALSE,results='asis'>>=
+
+He.Ptable(TukLoopGerm.TE)
+
+@
+}
+        \end{minipage}
+        
+      \vspace{1.4cm}
+      
+        \begin{minipage}{0.2\textwidth}
+        \centering
+        Salutamu
+\resizebox{\linewidth}{!}{
+
+<<echo=FALSE,results='asis'>>=
+
+He.Ptable(TukLoopGerm.TS)
+
+@
+}
+        \end{minipage}
+
+        \begin{minipage}{0.2\textwidth}
+        \centering
+        Torpedo
+\resizebox{\linewidth}{!}{
+
+<<echo=FALSE,results='asis'>>=
+
+He.Ptable(TukLoopGerm.TT)
+
+@
+}
+        \end{minipage}
+    \end{multicols}
+\end{table}
+\end{minipage}}
+
+\end{frame}
+
+
+\subsection{subsection b}
+
+\begin{frame}
+
+\frametitle{This is a frame with a table 3}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+\begin{enumerate}[I]
+
+\item texto de prueba 3
+\begin{itemize}
+
+\item texto de prueba 2
+
+\end{itemize}
+
+\end{enumerate}
+
+\begin{table}[htb]
+    \captionof{table}{Differences between treatments in EC according to Dunn Test($P>$0.05).}
+        \begin{multicols}{3}
+        \begin{minipage}{.2\textwidth}
+        \centering
+        Eggplant
+\resizebox{\linewidth}{!}{
+
+<<echo=FALSE,results='asis'>>=		
+
+He.Ptable(DunnLoopGerm.EC)
+ 
+
+
+@
+}
+        \end{minipage}
+
+      \vspace{0.5cm}
+
+        \begin{minipage}{.2\textwidth}
+        \centering
+        Brutus
+\resizebox{\linewidth}{!}{
+
+<<echo=FALSE,results='asis'>>=
+
+
+He.Ptable(DunnLoopGerm.TB)
+
+@
+}
+        \end{minipage}
+        \begin{minipage}{.2\textwidth}
+        \centering
+        Espina
+\resizebox{\linewidth}{!}{
+
+<<echo=FALSE,results='asis'>>=
+
+He.Ptable(DunnLoopGerm.TE)
+
+
+@
+}
+        \end{minipage}
+
+      \vspace{1cm}
+
+        \begin{minipage}{.2\textwidth}
+        \centering
+        Salutamu
+\resizebox{\linewidth}{!}{
+
+<<echo=FALSE,results='asis'>>=
+
+He.Ptable(DunnLoopGerm.TS)
+
+
+@
+}
+        \end{minipage}
+        
+      \vspace{1.5cm}
+
+        \begin{minipage}{.2\textwidth}
+        \centering
+        Torpedo
+\resizebox{\linewidth}{!}{
+
+<<echo=FALSE,results='asis'>>=
+
+He.Ptable(DunnLoopGerm.TT)
+
+@
+}
+        \end{minipage}
+    \end{multicols}
+\end{table}
+
+\end{minipage}}
+
+\end{frame}
+
+\section{section 3}
+\subsection{subsection a}
+
+\begin{frame}
+
+\frametitle{This is a frame with a table 4}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+
+\begin{enumerate}[I]
+
+\item texto de prueba 4
+
+
+\item texto de prueba 4
+
+\begin{itemize}
+\item texto de prueba 5
+\end{itemize}
+
+\end{enumerate}
+
+
+
+
+
+\begin{figure}[ht]{}
+    \captionsetup{width=\textwidth}
+        \centering
+        \begin{adjustbox}{width=\columnwidth, height=0.9\height}
+\resizebox{0.7\linewidth}{!}{
+
+	<<Plotssss, fig=TRUE, echo=F, warning=F, results='asis', cache=TRUE>>=
+
+He.Plot2(SelData, Germ, Isolate, PlotTitle="Line 1\n Line 2", yla="Eggs per plant", xla="Isolate")
+
+@	
+}	
+			\end{adjustbox}
+	\caption{Violin plots.}
+	\label{fig:Figure01}
+\end{figure}
+
+\end{minipage}}
+
+\end{frame}
+
+\subsection{subsection b}
+
+\begin{frame}
+\frametitle{This is a frame with a table EC}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+\begin{description}
+
+\item[Item 1] texto de prueba 5
+\item[Item 2] texto de prueba 6
+
+\end{description}
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+	\centering
+	\begin{adjustbox}{width=\columnwidth, height=\height}
+  \centering
+  \resizebox{0.6\linewidth}{!}{
+
+<<Plots figure individual EC, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopGerm.EC
+@
+}
+	\end{adjustbox}
+	\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure02}
+\end{figure}
+
+\end{minipage}}
+
+\end{frame}
+\begin{frame}
+\frametitle{This is a frame with a table TB}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+\begin{columns}
+\column{0.5\textwidth}
+\begin{enumerate}[I]
+
+\item texto de prueba 4
+
+
+\item texto de prueba 4
+
+\begin{itemize}
+\item texto de prueba 5
+\end{itemize}
+
+\end{enumerate}
+\column{0.5\textwidth}
+\begin{enumerate}[I]
+
+\item texto de prueba 4
+
+
+\item texto de prueba 4
+
+\begin{itemize}
+\item texto de prueba 5
+\end{itemize}
+
+\end{enumerate}
+\end{columns}
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+	\centering	
+	\begin{adjustbox}{width=\columnwidth, height=0.7\height}
+
+
+\resizebox{0.8\linewidth}{!}{
+<<Plots figure individual TB, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopGerm.TB
+@
+}
+	\end{adjustbox}
+	\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure03}
+\end{figure}
+
+\end{minipage}}
+
+\end{frame}
+\begin{frame}
+\frametitle{This is a frame with a table TE}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+\begin{columns}
+\column{0.5\textwidth}
+\begin{description}
+
+\item[Item 1] texto de prueba 5
+\item[Item 2] texto de prueba 6
+
+\end{description}
+\column{0.5\textwidth}
+\begin{description}
+
+\item[Item 1] texto de prueba 5
+\item[Item 2] texto de prueba 6
+
+\end{description}
+\end{columns}
+
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+	\centering	
+	\begin{adjustbox}{width=\columnwidth, height=0.7\height}
+
+
+\resizebox{0.8\linewidth}{!}{
+<<Plots figure individual TE, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopGerm.TE
+@
+}
+	\end{adjustbox}
+	\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure02}
+\end{figure}
+
+\end{minipage}}
+
+\end{frame}
+\begin{frame}
+\frametitle{This is a frame with a table TS}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+\begin{block}{Block Title}
+Lorem ipsum dolor sit amet, consectetur adipisicing elit, 
+sed do eiusmod tempor incididunt ut labore et 
+dolore magna aliqua.
+\end{block}
+
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+	\centering	
+	\begin{adjustbox}{width=\columnwidth, height=0.7\height}
+
+
+\resizebox{0.8\linewidth}{!}{
+<<Plots figure individual TS, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopGerm.TS
+@
+}
+	\end{adjustbox}
+	\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure02}
+\end{figure}
+
+\end{minipage}}
+
+\end{frame}
+\begin{frame}
+\frametitle{This is a frame with a table TT}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+\begin{alertblock}{Block Title}
+Lorem ipsum dolor sit amet, consectetur adipisicing elit, 
+sed do eiusmod tempor incididunt ut labore et 
+dolore magna aliqua.
+\end{alertblock}
+
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+	\centering	
+	\begin{adjustbox}{width=\columnwidth, height=0.7\height}
+
+
+\resizebox{0.8\linewidth}{!}{
+<<Plots figure individual TT, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopGerm.TT
+@
+}
+	\end{adjustbox}
+	\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure02}
+\end{figure}
+
+\end{minipage}}
+
+\end{frame}
+
+\subsection{subsection c}
+
+\begin{frame}
+
+\frametitle{This is a frame with a table 10}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+\begin{definition}
+A prime number is a number that...
+\end{definition}
+
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+
+
+\centering
+	\begin{adjustbox}{width=1\width, height=1\height}
+\resizebox{0.7\linewidth}{!}{
+
+<<Plots figure individual MIAd, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopIso.MIAd
+@
+}
+		\end{adjustbox}
+			\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure033}
+\end{figure}
+		
+	\end{minipage}}
+	
+		
+\end{frame}
+
+
+
+\begin{frame}[fragile]
+
+\frametitle{This is a frame with a table 11}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+\begin{columns}
+\column{0.3\textwidth}
+\begin{description}
+
+\item[Item 1] Test5
+  Test6
+\item[Item 2] Test 7
+
+\end{description}
+\column{0.3\textwidth}
+\begin{description}
+
+\item[Item 1] Test 5
+\item[Item 2] Test 6
+
+\end{description}
+\column{0.4\textwidth}
+\begin{description}
+
+\item[Item 1] \hyperlink{contents}{\beamerbutton{contents}}
+
+\item[Item 2] \hyperlink{contents}{\beamerbutton{contents}}
+
+
+\end{description}
+\end{columns}
+
+
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+
+
+\centering
+	\begin{adjustbox}{width=1\width, height=1\height}
+\resizebox{0.7\linewidth}{!}{
+
+<<Plots figure individual MIAl09, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopIso.MIAl09
+@
+}
+		\end{adjustbox}
+			\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure033}
+\end{figure}
+		
+\end{minipage}}
+		
+		
+	\end{frame}
+
+
+
+\begin{frame}
+
+\frametitle{This is a frame with a table 12}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+\begin{columns}
+\column{0.3\textwidth}
+\begin{description}
+
+\item[Item 1] Test5
+\pause
+  Test6
+\pause
+\item[Item 2] Test 7
+\pause
+\end{description}
+\column{0.3\textwidth}
+\begin{description}
+
+\item[Item 1] Test 5
+\pause
+\item[Item 2] Test 6
+\pause
+\end{description}
+\column{0.4\textwidth}
+\begin{description}
+
+\item[Item 1] \hyperlink{contents}{\beamerbutton{contents}}
+
+\item[Item 2] \hyperlink{contents}{\beamerbutton{contents}}
+\pause
+
+\end{description}
+\end{columns}
+
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+
+
+\centering	
+	\begin{adjustbox}{width=1\width, height=1\height}
+\resizebox{0.7\linewidth}{!}{
+
+<<Plots figure individual MIAl30, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopIso.MIAl30
+@
+}
+		\end{adjustbox}
+			\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure033}
+\end{figure}
+		
+		
+	\end{minipage}}
+	
+		
+	\end{frame}
+
+
+
+\begin{frame}
+
+\frametitle{This is a frame with a table 13}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+\begin{columns}
+\column{0.3\textwidth}
+\begin{description}
+
+\item<1,2,3->[Item 1] Test5
+\pause
+  Test6
+\pause
+\item<2,4->[Item 2] Test 7
+\pause
+\end{description}
+\column{0.3\textwidth}
+\begin{description}
+
+\item[Item 1] Test 5
+\pause
+\item[Item 2] Test 6
+\pause
+\end{description}
+\column{0.4\textwidth}
+\begin{description}
+
+\item[Item 1] \hyperlink{contents}{\beamerbutton{contents}}
+
+\item[Item 2] \hyperlink{contents}{\beamerbutton{contents}}
+\pause
+
+\end{description}
+\end{columns}
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+
+
+\centering	
+			\begin{adjustbox}{width=1\width, height=1\height}
+\resizebox{0.7\linewidth}{!}{
+
+<<Plots figure individual MIAm, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopIso.MIAm
+@
+}
+		\end{adjustbox}
+			\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure033}
+\end{figure}
+		
+	\end{minipage}}
+	
+		
+	\end{frame}
+
+
+
+\begin{frame}
+
+\frametitle{This is a frame with a table 14}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+\onslide<1->{First Line of Text}
+ 
+\onslide<2->{Second Line of Text}
+ 
+\onslide<3->{Third Line of Text}
+
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+
+
+\centering	
+		\begin{adjustbox}{width=1\width, height=1\height}
+\resizebox{0.7\linewidth}{!}{
+
+<<Plots figure individual MIPa, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopIso.MIPA
+@
+}
+		\end{adjustbox}
+			\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure033}
+\end{figure}
+		
+		
+	\end{minipage}}
+	
+		
+	\end{frame}
+
+
+
+\begin{frame}
+
+\frametitle{This is a frame with a table 15}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+\only<1>{First Line of Text}
+ 
+\only<2>{Second Line of Text}
+ 
+\only<3>{Third Line of Text}
+
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+
+
+\centering	
+		\begin{adjustbox}{width=1\width, height=1\height}
+\resizebox{0.7\linewidth}{!}{
+
+<<Plots figure individual MJ05, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopIso.MJ05
+@
+}
+		\end{adjustbox}
+			\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure033}
+\end{figure}
+		
+		
+	\end{minipage}}
+	
+		
+	\end{frame}
+
+
+
+\begin{frame}
+
+\frametitle{This is a frame with a table 16}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+\usecolortheme{fly}
+erthrtyj+
+
+yuil
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+
+
+\centering	
+		\begin{adjustbox}{width=1\width, height=1\height}
+\resizebox{0.7\linewidth}{!}{
+
+<<Plots figure individual MJAl01, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopIso.MJAl01
+@
+}
+		\end{adjustbox}
+			\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure033}
+\end{figure}
+		
+		
+	\end{minipage}}
+	
+	\end{frame}
+
+
+
+\begin{frame}
+
+\frametitle{This is a frame with a table 17}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+texto de prueba 17
+
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+
+
+\centering			
+		\begin{adjustbox}{width=1\width, height=1\height}
+\resizebox{0.7\linewidth}{!}{
+
+<<Plots figure individual MJAl05, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopIso.MJAl05
+@
+}
+		\end{adjustbox}
+			\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure033}
+\end{figure}
+		
+	\end{minipage}}
+	
+		
+	\end{frame}
+
+
+
+\begin{frame}
+
+\frametitle{This is a frame with a table 18}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+texto de prueba 18
+
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+
+
+\centering	
+		\begin{adjustbox}{width=1\width, height=1\height}
+\resizebox{0.7\linewidth}{!}{
+
+<<Plots figure individual MJPM, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopIso.MJPM
+@
+}
+		\end{adjustbox}
+			\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure033}
+\end{figure}
+		
+		\end{minipage}}
+
+		
+\end{frame}
+
+
+
+\begin{frame}
+
+\frametitle{This is a frame with a table 19}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+texto de prueba 19
+
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+
+
+\centering
+		\begin{adjustbox}{width=1\width, height=1\height}
+\resizebox{0.7\linewidth}{!}{
+
+<<Plots figure individual MJTu, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopIso.MJTu
+@
+}
+		\end{adjustbox}
+			\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure033}
+\end{figure}
+		
+		\end{minipage}}
+
+		
+\end{frame}
+
+
+
+\begin{frame}
+
+\frametitle{This is a frame with a table 20}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+\begin{columns}
+\column{0.5\textwidth}
+text 20
+\column{0.5\textwidth}
+text 21
+\end{columns}
+
+\begin{figure}[ht]{}
+	\captionsetup{width=\textwidth}
+
+
+\centering
+		\begin{adjustbox}{width=1\width, height=1\height}
+\resizebox{0.7\linewidth}{!}{
+
+<<Plots figure individual MJVi, echo=F, fig=TRUE, results='hide',message=F, cache=TRUE>>=
+
+PlotLoopIso.MJVi
+@
+}
+		\end{adjustbox}
+		
+		
+		
+		
+
+
+	\caption{Density/Box plots Eggplant.}
+	\label{fig:Figure033}
+\end{figure}
+
+\end{minipage}}
+
+
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Including Code}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+\begin{semiverbatim}
+\\begin\{frame\}
+\\frametitle\{Outline\}
+\\tableofcontents
+\\end\{frame\}
+\end{semiverbatim}
+
+\end{minipage}}
+
+\end{frame}
+
+\begin{frame}
+\frametitle{buttons}
+\scalebox{0.7}{\begin{minipage}{1.20\textwidth}
+
+
+\hyperlink{contents}{\beamerbutton{contents page}}
+
+\end{minipage}}
+
+\end{frame}
+
+\end{document}
