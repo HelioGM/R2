@@ -1,2 +1,2 @@
 # R2
-Prueba 2
+https://github.com/HelioGM/R2/blob/master/BeamerTest.pdf
